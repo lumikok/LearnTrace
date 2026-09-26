@@ -4,6 +4,8 @@
 
 ## Windows 桌面版：双击启动
 
+正式版本下载：[拾光 v0.4.0](https://github.com/lumikok/LearnTrace/releases/tag/v0.4.0)。请选择附件 `LearnTrace-0.4.0-win64.zip`，而不是 GitHub 自动生成的 Source code；同页提供 `.sha256` 校验文件。
+
 日常使用可打开 [打包好的程序](dist/拾光/拾光.exe)。分发给其他电脑时，发送 `dist/拾光-0.4.0-win64.zip`，让对方解压整个文件夹并双击 `拾光.exe`；不要只移动 `.exe`。压缩包内有使用说明，同目录的 `.sha256` 文件可校验下载是否完整。运行桌面版无需安装 Python，也无需打开命令行或浏览器。它使用系统的 Microsoft Edge WebView2 组件显示独立窗口，只在本机临时端口运行服务，窗口关闭后服务退出。若未检测到 WebView2，程序会明确提示安装地址；可从 [微软官网](https://developer.microsoft.com/en-us/microsoft-edge/webview2) 安装运行时。
 
 应用数据存于 `%LOCALAPPDATA%\ShiGuangLearning\learning.db`。首次升级时，会把旧项目 `data\learning.db` 的记录并入这份数据库，并在 `backups\` 留下合并前副本；旧数据库原文件仍保留。相同编号但内容不同的记录会全部保留。新安装在首次启动时记录首次使用日期；本项目现有数据的首次使用日期为 2026-09-24。操作日志存于同目录的 `logs\app.log`。

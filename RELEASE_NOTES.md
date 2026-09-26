@@ -12,7 +12,7 @@
 ## 下载与升级
 
 - 使用 Windows 10/11 x64，安装 Microsoft Edge WebView2 运行时。
-- 下载 `拾光-0.4.0-win64.zip`，解压完整文件夹后运行 `拾光.exe`。同目录 `.sha256` 文件提供 SHA256 校验值。
+- 从 [GitHub Release v0.4.0](https://github.com/lumikok/LearnTrace/releases/tag/v0.4.0) 下载 `LearnTrace-0.4.0-win64.zip`，解压完整文件夹后运行 `拾光.exe`。对应 `.sha256` 附件提供 SHA256 校验值。本地构建文件名为 `拾光-0.4.0-win64.zip`，上传时采用英文文件名，文件内容相同。
 - 升级前保存一份本地备份并关闭程序，再替换程序文件夹。数据存于 `%LOCALAPPDATA%\ShiGuangLearning`，不在程序文件夹内。
 
 ## 另一台干净 Windows 电脑的发布验收
@@ -25,4 +25,4 @@
 4. 使用旧版创建记录与回顾，关闭后换为 0.4.0，确认原内容保留且能保存新增字段和参考值；验证周记录翻页、全文展开、热力图与默认折叠搜索。
 5. 关闭程序后确认没有留下本地服务。
 
-跨电脑验收已通过，当前 ZIP 可用于分发。GitHub Release 附件发布状态仍需单独确认，验收通过不代表附件已上传。
+2026-09-26：已发布 [GitHub Release v0.4.0](https://github.com/lumikok/LearnTrace/releases/tag/v0.4.0)，包含已验收 ZIP 和 SHA256 校验附件；上传后核对附件大小及 SHA256 一致。发布标签对应提交 `e96b394`。
