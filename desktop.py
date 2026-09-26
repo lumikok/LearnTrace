@@ -14,6 +14,28 @@ from urllib.request import urlopen
 
 from storage import prepare_shared_database
 
+def webview2_runtime_version() -> str | None:
+    """Read the per-machine and per-user WebView2 Evergreen registrations."""
+    if sys.platform != "win32":
+        return None
+    import winreg
+
+    client = r"{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+    locations = (
+        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{client}"),
+        (winreg.HKEY_CURRENT_USER, rf"Software\Microsoft\EdgeUpdate\Clients\{client}"),
+    )
+    for hive, path in locations:
+        try:
+            with winreg.OpenKey(hive, path) as key:
+                version, _ = winreg.QueryValueEx(key, "pv")
+                if version and version != "0.0.0.0":
+                    return version
+        except OSError:
+            continue
+    return None
+
+
 def prepare_data() -> Path:
     database = prepare_shared_database()
     folder = database.parent
@@ -50,9 +72,11 @@ def start_server():
 
 
 def main() -> int:
-    folder = prepare_data()
     server = thread = listener = None
     try:
+        folder = prepare_data()
+        if "--smoke-test" not in sys.argv and sys.platform == "win32" and not webview2_runtime_version():
+            raise RuntimeError("未检测到 Microsoft Edge WebView2 运行时。请从 https://developer.microsoft.com/microsoft-edge/webview2/ 安装后重试。")
         server, thread, listener, url = start_server()
         if "--smoke-test" in sys.argv:
             with urlopen(f"{url}api/overview", timeout=3) as response:

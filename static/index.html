@@ -61,7 +61,8 @@
           <p class="section-note">先看这一周留下了什么，再写下真正有用的收获和下一步。记录数只用于回看活动，不评价学习质量。</p>
           <div id="reviewSummary" class="review-summary"></div>
           <div id="reviewHighlights" class="review-highlights"></div>
-          <form id="reviewForm" class="review-form"><label>本周真正学会或发现了什么？<textarea name="learning" maxlength="2000" rows="3" placeholder="例如：我终于能解释为什么二分查找需要维持边界不变量"></textarea></label><label>下一步最值得做的一件事<input name="next_step" maxlength="1000" placeholder="写下一个具体、可执行的动作"></label><button type="submit" class="primary">保存回顾</button><span id="reviewStatus" role="status"></span></form>
+          <div id="reviewPrevious" class="review-previous" hidden><strong>上周计划的一件事</strong><p id="reviewPreviousText"></p></div>
+          <form id="reviewForm" class="review-form"><label id="reviewFollowUpLabel" hidden>上周行动进展<textarea name="follow_up" maxlength="1000" rows="2" placeholder="做了什么？如果没有完成，原因是什么？"></textarea></label><label>本周真正学会或发现了什么？<textarea name="learning" maxlength="2000" rows="3" placeholder="例如：我终于能解释为什么二分查找需要维持边界不变量"></textarea></label><label>本周卡点<textarea name="blocker" maxlength="2000" rows="2" placeholder="哪里还没弄清楚？下一次准备怎样验证？"></textarea></label><label>下一步最值得做的一件事<input name="next_step" maxlength="1000" placeholder="写下一个具体、可执行的动作"></label><button id="reviewSave" type="submit" class="primary">保存回顾</button><span id="reviewStatus" role="status" aria-live="polite"></span></form>
         </section>
 
         <div class="two-column">

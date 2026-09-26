@@ -109,6 +109,8 @@ class MilestoneInput(BaseModel):
 class ReviewInput(BaseModel):
     week_start: str
     learning: str = Field(default="", max_length=2000)
+    blocker: str = Field(default="", max_length=2000)
+    follow_up: str = Field(default="", max_length=1000)
     next_step: str = Field(default="", max_length=1000)
 
     @field_validator("week_start")
@@ -119,7 +121,7 @@ class ReviewInput(BaseModel):
             raise ValueError("回顾须从周一开始")
         return value
 
-    @field_validator("learning", "next_step")
+    @field_validator("learning", "blocker", "follow_up", "next_step")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
@@ -154,6 +156,8 @@ def create_app(db_path: Path | str | None = None, first_used_on: str | None = No
             CREATE TABLE IF NOT EXISTS weekly_reviews (
                 week_start TEXT PRIMARY KEY,
                 learning TEXT NOT NULL DEFAULT '',
+                blocker TEXT NOT NULL DEFAULT '',
+                follow_up TEXT NOT NULL DEFAULT '',
                 next_step TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS app_meta (
@@ -161,6 +165,10 @@ def create_app(db_path: Path | str | None = None, first_used_on: str | None = No
                 value TEXT NOT NULL
             );
         """)
+        review_columns = {row[1] for row in db.execute("PRAGMA table_info(weekly_reviews)")}
+        for column in ("blocker", "follow_up"):
+            if column not in review_columns:
+                db.execute(f"ALTER TABLE weekly_reviews ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         db.execute("INSERT OR IGNORE INTO app_meta(key, value) VALUES ('first_used_on', ?)", (initial_day,))
 
     def first_day(db: sqlite3.Connection) -> str:
@@ -268,8 +276,10 @@ def create_app(db_path: Path | str | None = None, first_used_on: str | None = No
                 raise HTTPException(422, "该周不在使用日期范围内")
             rows = db.execute("SELECT day, category, content, minutes FROM records WHERE day BETWEEN ? AND ? ORDER BY day DESC, id DESC", (week_start, end.isoformat())).fetchall()
             categories = [dict(row) for row in db.execute("SELECT category, COUNT(*) AS count FROM records WHERE day BETWEEN ? AND ? GROUP BY category ORDER BY count DESC, category", (week_start, end.isoformat()))]
-            note = db.execute("SELECT learning, next_step FROM weekly_reviews WHERE week_start=?", (week_start,)).fetchone()
-        return {"week_start": week_start, "week_end": end.isoformat(), "total_records": len(rows), "active_days": len({row["day"] for row in rows}), "total_minutes": sum(row["minutes"] or 0 for row in rows), "categories": categories, "highlights": [dict(row) for row in rows[:6]], "learning": note["learning"] if note else "", "next_step": note["next_step"] if note else ""}
+            note = db.execute("SELECT learning, blocker, follow_up, next_step FROM weekly_reviews WHERE week_start=?", (week_start,)).fetchone()
+            previous_week = (start - timedelta(days=7)).isoformat()
+            previous = db.execute("SELECT next_step FROM weekly_reviews WHERE week_start=?", (previous_week,)).fetchone()
+        return {"week_start": week_start, "week_end": end.isoformat(), "total_records": len(rows), "active_days": len({row["day"] for row in rows}), "total_minutes": sum(row["minutes"] or 0 for row in rows), "categories": categories, "highlights": [dict(row) for row in rows[:6]], "learning": note["learning"] if note else "", "blocker": note["blocker"] if note else "", "follow_up": note["follow_up"] if note else "", "next_step": note["next_step"] if note else "", "previous_next_step": previous["next_step"] if previous else ""}
 
     @app.put("/api/review")
     def save_weekly_review(item: ReviewInput):
@@ -277,7 +287,7 @@ def create_app(db_path: Path | str | None = None, first_used_on: str | None = No
             end = date.fromisoformat(item.week_start) + timedelta(days=6)
             if end.isoformat() < first_day(db) or item.week_start > date.today().isoformat():
                 raise HTTPException(422, "该周不在使用日期范围内")
-            db.execute("INSERT INTO weekly_reviews(week_start, learning, next_step) VALUES (?, ?, ?) ON CONFLICT(week_start) DO UPDATE SET learning=excluded.learning, next_step=excluded.next_step", (item.week_start, item.learning, item.next_step))
+            db.execute("INSERT INTO weekly_reviews(week_start, learning, blocker, follow_up, next_step) VALUES (?, ?, ?, ?, ?) ON CONFLICT(week_start) DO UPDATE SET learning=excluded.learning, blocker=excluded.blocker, follow_up=excluded.follow_up, next_step=excluded.next_step", (item.week_start, item.learning, item.blocker, item.follow_up, item.next_step))
             logger.info("review.save week_start=%s", item.week_start)
         return {"saved": True}
 

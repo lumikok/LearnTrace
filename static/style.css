@@ -39,6 +39,9 @@
 .review-highlights p{font-size:12px;color:#637b69;line-height:1.7;padding:7px 0;margin:0;border-bottom:1px solid #edf0eb;white-space:pre-wrap;overflow-wrap:anywhere}
 .review-highlights time{color:#8da092}
 .review-form{display:grid;gap:12px;margin-top:22px}
+.review-previous{margin-top:18px;padding:13px 15px;border-radius:9px;background:#f4f7ee;color:#426b4d;font-size:12px}
+.review-previous[hidden],.review-form label[hidden]{display:none}
+.review-previous p{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0;line-height:1.6}
 .review-form label{font-size:12px;font-weight:700;color:#41584a}
 .review-form textarea,.review-form input{display:block;width:100%;margin-top:7px;padding:10px 12px;border:1px solid #dce6dc;border-radius:8px;background:#fbfcfa;color:#263a36;font-weight:400}
 .review-form button{justify-self:start}

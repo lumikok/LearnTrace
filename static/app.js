@@ -1,4 +1,4 @@
-const state = { dayRecords: [], activity: {}, milestones: [], categories: [], stats: {}, first_used_on: null, selectedDay: today(), editingId: null, searchPage: 1, searchTotal: 0, searchRequest: 0, reviewWeek: monday(today()), calendarRendered: false };
+const state = { dayRecords: [], activity: {}, milestones: [], categories: [], stats: {}, first_used_on: null, selectedDay: today(), editingId: null, searchPage: 1, searchTotal: 0, searchRequest: 0, reviewWeek: monday(today()), reviewRequest: 0, reviewDirty: false, reviewSaving: false, reviewSnapshot: '', calendarRendered: false };
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const formatDay = (day) => new Intl.DateTimeFormat('zh-CN', {year:'numeric',month:'long',day:'numeric',weekday:'long'}).format(new Date(`${day}T12:00:00`));
@@ -23,7 +23,7 @@ async function refresh() {
   state.dayRecords = await api(`/api/records?day=${state.selectedDay}`);
   if (offsetDay(state.reviewWeek, 6) < state.first_used_on) state.reviewWeek = monday(state.first_used_on);
   render();
-  await Promise.all([runSearch(), loadReview()]);
+  await Promise.all([runSearch(), loadReview(state.reviewWeek, true)]);
 }
 function toast(message) {
   const node = $('#toast'); node.textContent = message; node.classList.add('show');
@@ -112,17 +112,44 @@ async function runSearch() {
     $('#searchNext').disabled = state.searchPage >= pages;
   } catch (error) { if (request === state.searchRequest) $('#searchResults').innerHTML = `<div class="empty">查询失败：${escapeHtml(error.message)}</div>`; }
 }
-async function loadReview() {
-  $('#reviewPrev').disabled = offsetDay(state.reviewWeek, -1) < state.first_used_on;
-  $('#reviewNext').disabled = state.reviewWeek >= monday(today());
-  const review = await api(`/api/review?week_start=${state.reviewWeek}`);
+function reviewValues() {
+  const fields = $('#reviewForm').elements;
+  return {learning: fields.learning.value, blocker: fields.blocker.value, follow_up: fields.follow_up.value, next_step: fields.next_step.value};
+}
+function updateReviewDirty() {
+  state.reviewDirty = JSON.stringify(reviewValues()) !== state.reviewSnapshot;
+  $('#reviewStatus').textContent = state.reviewDirty ? '有未保存的改动' : '';
+}
+async function loadReview(week = state.reviewWeek, preserveDraft = false) {
+  const request = ++state.reviewRequest;
+  const review = await api(`/api/review?week_start=${week}`);
+  if (request !== state.reviewRequest) return;
+  state.reviewWeek = week;
+  $('#reviewPrev').disabled = offsetDay(week, -1) < state.first_used_on;
+  $('#reviewNext').disabled = week >= monday(today());
   $('#reviewRange').textContent = `${review.week_start} — ${review.week_end}`;
   const topics = review.categories.map((item) => `${escapeHtml(item.category)} ${item.count} 条`).join(' · ');
   $('#reviewSummary').innerHTML = `<span>${review.total_records} 条记录</span><span>${review.active_days} 天有学习</span><span>${review.total_minutes} 分钟已记录</span>${topics ? `<p>本周主题：${topics}</p>` : ''}`;
   $('#reviewHighlights').innerHTML = review.highlights.length ? `<h3>回看记录</h3>${review.highlights.map((item) => `<p><time>${item.day}</time> · ${escapeHtml(item.category)} · ${escapeHtml(item.content)}</p>`).join('')}` : '<div class="empty">这周还没有学习记录，仍可写下观察和下一步。</div>';
-  $('#reviewForm').elements.learning.value = review.learning;
-  $('#reviewForm').elements.next_step.value = review.next_step;
-  $('#reviewStatus').textContent = '';
+  $('#reviewPrevious').hidden = !review.previous_next_step;
+  $('#reviewPreviousText').textContent = review.previous_next_step;
+  $('#reviewFollowUpLabel').hidden = !review.previous_next_step && !review.follow_up;
+  if (!preserveDraft || !state.reviewDirty) {
+    const fields = $('#reviewForm').elements;
+    fields.learning.value = review.learning;
+    fields.blocker.value = review.blocker;
+    fields.follow_up.value = review.follow_up;
+    fields.next_step.value = review.next_step;
+    state.reviewSnapshot = JSON.stringify(reviewValues());
+    state.reviewDirty = false;
+    $('#reviewStatus').textContent = '';
+  }
+}
+async function changeReviewWeek(days) {
+  if (state.reviewSaving) { toast('正在保存回顾，请稍候'); return; }
+  if (state.reviewDirty && !confirm('本周回顾有未保存的内容。确定放弃改动并切换周次吗？')) return;
+  try { await loadReview(offsetDay(state.reviewWeek, days)); }
+  catch (error) { toast(error.message); }
 }
 function openRecord(item = null) {
   state.editingId = item?.id ?? null;
@@ -158,18 +185,34 @@ $('#clearSearch').addEventListener('click', () => { $('#searchQuery').value = ''
 $('#searchPrev').addEventListener('click', () => { if (state.searchPage > 1) { state.searchPage--; runSearch(); } });
 $('#searchNext').addEventListener('click', () => { if (state.searchPage * 20 < state.searchTotal) { state.searchPage++; runSearch(); } });
 $('#searchResults').addEventListener('click', (event) => { const day = event.target.closest('[data-search-day]')?.dataset.searchDay; if (day) selectDay(day); });
-$('#reviewPrev').addEventListener('click', () => { state.reviewWeek = offsetDay(state.reviewWeek, -7); loadReview().catch((error) => toast(error.message)); });
-$('#reviewNext').addEventListener('click', () => { state.reviewWeek = offsetDay(state.reviewWeek, 7); loadReview().catch((error) => toast(error.message)); });
-$('#reviewForm').addEventListener('submit', async (event) => { event.preventDefault(); const form = event.target; try { await api('/api/review', {method:'PUT',body:JSON.stringify({week_start:state.reviewWeek,learning:form.elements.learning.value,next_step:form.elements.next_step.value})}); $('#reviewStatus').textContent = '已保存'; toast('本周回顾已保存'); } catch (error) { $('#reviewStatus').textContent = error.message; } });
+$('#reviewPrev').addEventListener('click', () => changeReviewWeek(-7));
+$('#reviewNext').addEventListener('click', () => changeReviewWeek(7));
+$('#reviewForm').addEventListener('input', updateReviewDirty);
+$('#reviewForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (state.reviewSaving) return;
+  const week = state.reviewWeek, values = reviewValues();
+  state.reviewSaving = true; $('#reviewSave').disabled = true;
+  try {
+    await api('/api/review', {method:'PUT', body:JSON.stringify({week_start: week, ...values})});
+    state.reviewSnapshot = JSON.stringify(values);
+    updateReviewDirty();
+    if (!state.reviewDirty) $('#reviewStatus').textContent = '已保存';
+    toast('本周回顾已保存');
+  } catch (error) { $('#reviewStatus').textContent = error.message; }
+  finally { state.reviewSaving = false; $('#reviewSave').disabled = false; }
+});
+window.addEventListener('beforeunload', (event) => { if (state.reviewDirty) { event.preventDefault(); event.returnValue = ''; } });
 $('#saveBackup').addEventListener('click', async () => {
   try { const result = await api('/api/backup-local', {method:'POST'}); $('#dataStatus').textContent = `备份已保存：${result.path}`; toast('本地备份已保存'); }
   catch (error) { $('#dataStatus').textContent = error.message; }
 });
 $('#restoreFile').addEventListener('change', async (event) => {
   const file = event.target.files?.[0]; if (!file) return;
-  if (!confirm(`确定从「${file.name}」恢复吗？当前数据会先自动备份，再由该文件替换。`)) { event.target.value = ''; return; }
+  if (!confirm(`确定从「${file.name}」恢复吗？当前数据会先自动备份，再由该文件替换。未保存的回顾内容会丢失。`)) { event.target.value = ''; return; }
   try {
     const result = await api('/api/restore', {method:'POST',headers:{'Content-Type':'application/octet-stream'},body:await file.arrayBuffer()});
+    state.reviewDirty = false;
     await refresh(); $('#dataStatus').textContent = `恢复完成。原数据的安全副本：${result.safety_backup}`; toast('数据已恢复');
   } catch (error) { $('#dataStatus').textContent = `恢复失败：${error.message}`; }
   event.target.value = '';

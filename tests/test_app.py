@@ -119,6 +119,60 @@ class AppFlowTests(unittest.TestCase):
         reopened.close()
         self.assertEqual(self.client.get("/api/review?week_start=2026-09-22").status_code, 422)
 
+    def test_old_review_schema_migrates_and_action_carries_forward(self):
+        legacy_path = Path(self.temp.name) / "legacy-review.db"
+        with closing(sqlite3.connect(legacy_path)) as db:
+            db.execute("CREATE TABLE weekly_reviews(week_start TEXT PRIMARY KEY, learning TEXT NOT NULL DEFAULT '', next_step TEXT NOT NULL DEFAULT '')")
+            db.execute("INSERT INTO weekly_reviews VALUES ('2026-09-14', '理解边界', '独立完成两题')")
+            db.commit()
+        client = TestClient(create_app(legacy_path, first_used_on="2026-09-14"))
+        previous = client.get("/api/review?week_start=2026-09-14").json()
+        self.assertEqual((previous["learning"], previous["blocker"], previous["next_step"]), ("理解边界", "", "独立完成两题"))
+        current = client.get("/api/review?week_start=2026-09-21").json()
+        self.assertEqual(current["previous_next_step"], "独立完成两题")
+        payload = {"week_start": "2026-09-21", "learning": "完成一题", "blocker": "边界仍不稳", "follow_up": "完成一题，另一题待做", "next_step": "写测试验证边界"}
+        self.assertEqual(client.put("/api/review", json=payload).status_code, 200)
+        client.close()
+        reopened = TestClient(create_app(legacy_path))
+        review = reopened.get("/api/review?week_start=2026-09-21").json()
+        self.assertEqual((review["blocker"], review["follow_up"], review["previous_next_step"]), ("边界仍不稳", "完成一题，另一题待做", "独立完成两题"))
+        reopened.close()
+
+    def test_restore_legacy_backup_upgrades_review_schema(self):
+        backup_path = Path(self.temp.name) / "old-backup.db"
+        with closing(sqlite3.connect(backup_path)) as db:
+            db.executescript("""
+                CREATE TABLE records(id INTEGER PRIMARY KEY, day TEXT NOT NULL, category TEXT NOT NULL, content TEXT NOT NULL, minutes INTEGER, link TEXT, created_at TEXT NOT NULL);
+                CREATE TABLE milestones(id INTEGER PRIMARY KEY, day TEXT NOT NULL, title TEXT NOT NULL, detail TEXT NOT NULL);
+                CREATE TABLE weekly_reviews(week_start TEXT PRIMARY KEY, learning TEXT NOT NULL DEFAULT '', next_step TEXT NOT NULL DEFAULT '');
+                CREATE TABLE app_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT INTO app_meta VALUES ('first_used_on', '2026-09-14');
+                INSERT INTO records VALUES (1, '2026-09-24', '算法', '旧记录', NULL, NULL, '2026-09-24');
+                INSERT INTO weekly_reviews VALUES ('2026-09-21', '旧收获', '继续练习');
+            """)
+        restored = self.client.post("/api/restore", content=backup_path.read_bytes(), headers={"Content-Type": "application/octet-stream"})
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(self.client.get("/api/records?day=2026-09-24").json()[0]["content"], "旧记录")
+        review = self.client.get("/api/review?week_start=2026-09-21").json()
+        self.assertEqual((review["learning"], review["blocker"], review["follow_up"], review["next_step"]), ("旧收获", "", "", "继续练习"))
+        self.assertEqual(self.client.put("/api/review", json={"week_start": "2026-09-21", "blocker": "待验证", "follow_up": "已复习"}).status_code, 200)
+        snapshot = self.client.get("/api/backup").content
+        self.client.put("/api/review", json={"week_start": "2026-09-21", "blocker": "已改变"})
+        self.assertEqual(self.client.post("/api/restore", content=snapshot, headers={"Content-Type": "application/octet-stream"}).status_code, 200)
+        restored_review = self.client.get("/api/review?week_start=2026-09-21").json()
+        self.assertEqual((restored_review["blocker"], restored_review["follow_up"]), ("待验证", "已复习"))
+
+
+class DesktopStartupTests(unittest.TestCase):
+    def test_missing_webview2_has_actionable_message(self):
+        import desktop
+        with patch("desktop.prepare_data", return_value=Path("unused")), patch("desktop.webview2_runtime_version", return_value=None), patch("desktop.sys.platform", "win32"), patch("desktop.sys.argv", ["desktop"]), patch("desktop.start_server") as server, patch("desktop.ctypes") as native, patch("desktop.logging.getLogger"):
+            self.assertEqual(desktop.main(), 1)
+            server.assert_not_called()
+            message = native.windll.user32.MessageBoxW.call_args.args[1]
+            self.assertIn("WebView2", message)
+            self.assertIn("https://developer.microsoft.com", message)
+
 
 class DesktopDataTests(unittest.TestCase):
     def test_fresh_install_records_first_day_once(self):
