@@ -127,6 +127,11 @@ class ReviewInput(BaseModel):
         return value.strip()
 
 
+class ActivitySettingsInput(BaseModel):
+    record_target: int = Field(default=8, ge=1, le=100)
+    minutes_target: int = Field(default=600, ge=1, le=1440)
+
+
 def create_app(db_path: Path | str | None = None, first_used_on: str | None = None) -> FastAPI:
     configure_logging()
     db_path = Path(db_path or os.getenv("LEARNING_DB_PATH") or prepare_shared_database())
@@ -170,6 +175,15 @@ def create_app(db_path: Path | str | None = None, first_used_on: str | None = No
             if column not in review_columns:
                 db.execute(f"ALTER TABLE weekly_reviews ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         db.execute("INSERT OR IGNORE INTO app_meta(key, value) VALUES ('first_used_on', ?)", (initial_day,))
+        db.execute("INSERT OR IGNORE INTO app_meta(key, value) VALUES ('activity_record_target', '8')")
+        db.execute("INSERT OR IGNORE INTO app_meta(key, value) VALUES ('activity_minutes_target', '600')")
+
+    def activity_settings(db: sqlite3.Connection) -> dict:
+        values = dict(db.execute("SELECT key, value FROM app_meta WHERE key IN ('activity_record_target', 'activity_minutes_target')"))
+        try:
+            return ActivitySettingsInput(record_target=int(values['activity_record_target']), minutes_target=int(values['activity_minutes_target'])).model_dump()
+        except (KeyError, ValueError):
+            return ActivitySettingsInput().model_dump()
 
     def first_day(db: sqlite3.Connection) -> str:
         return db.execute("SELECT value FROM app_meta WHERE key='first_used_on'").fetchone()[0]
@@ -203,14 +217,22 @@ def create_app(db_path: Path | str | None = None, first_used_on: str | None = No
     def overview():
         with connection() as db:
             stats = dict(db.execute("SELECT COUNT(*) AS total_records, COUNT(DISTINCT day) AS active_days, COALESCE(SUM(minutes), 0) AS total_minutes FROM records").fetchone())
-            activity = {
-                row["day"]: {"count": row["count"], "level": min(row["count"], 4)}
-                for row in db.execute("SELECT day, COUNT(*) AS count FROM records GROUP BY day")
-            }
+            settings = activity_settings(db)
+            activity = {}
+            for row in db.execute("SELECT day, COUNT(*) AS count, COALESCE(SUM(minutes), 0) AS minutes, COUNT(*) - COUNT(minutes) AS untimed_count FROM records GROUP BY day"):
+                score = max(1, int(30 * min(row['count'] / settings['record_target'], 1) + 70 * min(row['minutes'] / settings['minutes_target'], 1) + 0.5))
+                activity[row['day']] = {"count": row['count'], "minutes": row['minutes'], "untimed_count": row['untimed_count'], "score": score, "level": (score + 24) // 25}
             milestones = [dict(row) for row in db.execute("SELECT * FROM milestones ORDER BY day DESC, id DESC")]
             categories = [row[0] for row in db.execute("SELECT DISTINCT category FROM records ORDER BY category")]
             started_on = first_day(db)
-        return {"stats": stats, "activity": activity, "milestones": milestones, "categories": categories, "first_used_on": started_on}
+        return {"stats": stats, "activity": activity, "activity_settings": settings, "milestones": milestones, "categories": categories, "first_used_on": started_on}
+
+    @app.put("/api/activity-settings")
+    def save_activity_settings(item: ActivitySettingsInput):
+        with connection() as db:
+            db.executemany("INSERT INTO app_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [("activity_record_target", str(item.record_target)), ("activity_minutes_target", str(item.minutes_target))])
+        logger.info("activity.settings record_target=%s minutes_target=%s", item.record_target, item.minutes_target)
+        return item.model_dump()
 
     @app.get("/api/records")
     def records_for_day(day: str):
@@ -274,12 +296,12 @@ def create_app(db_path: Path | str | None = None, first_used_on: str | None = No
         with connection() as db:
             if end.isoformat() < first_day(db) or start > date.today():
                 raise HTTPException(422, "该周不在使用日期范围内")
-            rows = db.execute("SELECT day, category, content, minutes FROM records WHERE day BETWEEN ? AND ? ORDER BY day DESC, id DESC", (week_start, end.isoformat())).fetchall()
+            stats = dict(db.execute("SELECT COUNT(*) AS total_records, COUNT(DISTINCT day) AS active_days, COALESCE(SUM(minutes), 0) AS total_minutes FROM records WHERE day BETWEEN ? AND ?", (week_start, end.isoformat())).fetchone())
             categories = [dict(row) for row in db.execute("SELECT category, COUNT(*) AS count FROM records WHERE day BETWEEN ? AND ? GROUP BY category ORDER BY count DESC, category", (week_start, end.isoformat()))]
             note = db.execute("SELECT learning, blocker, follow_up, next_step FROM weekly_reviews WHERE week_start=?", (week_start,)).fetchone()
             previous_week = (start - timedelta(days=7)).isoformat()
             previous = db.execute("SELECT next_step FROM weekly_reviews WHERE week_start=?", (previous_week,)).fetchone()
-        return {"week_start": week_start, "week_end": end.isoformat(), "total_records": len(rows), "active_days": len({row["day"] for row in rows}), "total_minutes": sum(row["minutes"] or 0 for row in rows), "categories": categories, "highlights": [dict(row) for row in rows[:6]], "learning": note["learning"] if note else "", "blocker": note["blocker"] if note else "", "follow_up": note["follow_up"] if note else "", "next_step": note["next_step"] if note else "", "previous_next_step": previous["next_step"] if previous else ""}
+        return {"week_start": week_start, "week_end": end.isoformat(), **stats, "categories": categories, "learning": note["learning"] if note else "", "blocker": note["blocker"] if note else "", "follow_up": note["follow_up"] if note else "", "next_step": note["next_step"] if note else "", "previous_next_step": previous["next_step"] if previous else ""}
 
     @app.put("/api/review")
     def save_weekly_review(item: ReviewInput):

@@ -1,5 +1,6 @@
 const state = { dayRecords: [], activity: {}, milestones: [], categories: [], stats: {}, first_used_on: null, selectedDay: today(), editingId: null, searchPage: 1, searchTotal: 0, searchRequest: 0, reviewWeek: monday(today()), reviewRequest: 0, reviewDirty: false, reviewSaving: false, reviewSnapshot: '', calendarRendered: false };
 const $ = (selector) => document.querySelector(selector);
+Object.assign(state, {reviewRecordsPage: 1, reviewRecordsTotal: 0, reviewRecordsRequest: 0});
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const formatDay = (day) => new Intl.DateTimeFormat('zh-CN', {year:'numeric',month:'long',day:'numeric',weekday:'long'}).format(new Date(`${day}T12:00:00`));
 function today() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
@@ -45,6 +46,10 @@ function render() {
   $('#activeDays').textContent = state.stats.active_days;
   $('#totalMinutes').textContent = state.stats.total_minutes;
   $('#totalMilestones').textContent = state.milestones.length;
+  const reference = state.activity_settings || {record_target: 8, minutes_target: 600};
+  $('#activityRecordTarget').value = reference.record_target;
+  $('#activityMinutesTarget').value = reference.minutes_target;
+  $('#activityReference').textContent = `${reference.record_target} 条 / ${reference.minutes_target} 分钟`;
   renderCalendar(); renderRecords(); renderMilestones();
 }
 function renderCalendar() {
@@ -61,9 +66,9 @@ function renderCalendar() {
     const monthDay = firstOfMonth || (weeks.length === 0 && (Number(start.slice(8)) <= 14 || start.slice(0, 7) === end.slice(0, 7)) ? start : null);
     monthLabels.push(`<span class="month-slot">${monthDay ? `<span>${monthDay.slice(5, 7) === '01' ? `${monthDay.slice(0, 4)}年` : ''}${Number(monthDay.slice(5, 7))}月</span>` : ''}</span>`);
     for (let n = 0; n < 7; n++) {
-      const day = offsetDay(weekStart, n), activity = state.activity[day] || {count: 0, level: 0};
+      const day = offsetDay(weekStart, n), activity = state.activity[day] || {count: 0, level: 0, minutes: 0, score: 0, untimed_count: 0};
       if (day < start || day > end) { days.push('<span class="day-cell future"></span>'); continue; }
-      const label = `${day}：${activity.count} 条记录，活跃等级 ${activity.level}/4${milestones.has(day) ? '，有成长节点' : ''}`;
+      const label = `${day}：${activity.count} 条记录，已记录 ${activity.minutes} 分钟，活跃度 ${activity.score}%${activity.untimed_count ? `，${activity.untimed_count} 条未填时长，时长数据不完整` : ''}${milestones.has(day) ? '，有成长节点' : ''}`;
       days.push(`<button class="day-cell level-${activity.level}${day === state.selectedDay ? ' selected' : ''}${milestones.has(day) ? ' has-milestone' : ''}" data-day="${day}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"></button>`);
     }
     weeks.push(`<div class="week">${days.join('')}</div>`);
@@ -75,7 +80,8 @@ function renderCalendar() {
 }
 function renderRecords() {
   const items = state.dayRecords;
-  $('#daySummary').textContent = `${formatDay(state.selectedDay)} · ${items.length} 条记录 · 活跃等级 ${state.activity[state.selectedDay]?.level ?? 0}/4`;
+  const activity = state.activity[state.selectedDay];
+  $('#daySummary').textContent = `${formatDay(state.selectedDay)} · ${items.length} 条记录 · 活跃度 ${activity?.score ?? 0}%${activity?.untimed_count ? ` · ${activity.untimed_count} 条未填时长` : ''}`;
   $('#recordList').innerHTML = items.length ? items.map((item) => `<article class="entry"><div class="entry-top"><span class="badge">${escapeHtml(item.category)}</span><div><button class="icon-button" data-edit="${item.id}">编辑</button><button class="icon-button" data-delete="${item.id}">删除</button></div></div><p class="entry-content">${escapeHtml(item.content)}</p><div class="entry-meta">${item.minutes !== null ? `<span>◷ ${item.minutes} 分钟</span>` : ''}${item.link ? `<a href="${escapeHtml(item.link)}" target="_blank" rel="noopener noreferrer">查看成果 ↗</a>` : ''}</div></article>`).join('') : '<div class="empty">这一天还没有记录。<br>按下「添加记录」，留下今天学到的东西。</div>';
 }
 function renderMilestones() {
@@ -124,13 +130,13 @@ async function loadReview(week = state.reviewWeek, preserveDraft = false) {
   const request = ++state.reviewRequest;
   const review = await api(`/api/review?week_start=${week}`);
   if (request !== state.reviewRequest) return;
+  if (week !== state.reviewWeek) state.reviewRecordsPage = 1;
   state.reviewWeek = week;
   $('#reviewPrev').disabled = offsetDay(week, -1) < state.first_used_on;
   $('#reviewNext').disabled = week >= monday(today());
   $('#reviewRange').textContent = `${review.week_start} — ${review.week_end}`;
   const topics = review.categories.map((item) => `${escapeHtml(item.category)} ${item.count} 条`).join(' · ');
   $('#reviewSummary').innerHTML = `<span>${review.total_records} 条记录</span><span>${review.active_days} 天有学习</span><span>${review.total_minutes} 分钟已记录</span>${topics ? `<p>本周主题：${topics}</p>` : ''}`;
-  $('#reviewHighlights').innerHTML = review.highlights.length ? `<h3>回看记录</h3>${review.highlights.map((item) => `<p><time>${item.day}</time> · ${escapeHtml(item.category)} · ${escapeHtml(item.content)}</p>`).join('')}` : '<div class="empty">这周还没有学习记录，仍可写下观察和下一步。</div>';
   $('#reviewPrevious').hidden = !review.previous_next_step;
   $('#reviewPreviousText').textContent = review.previous_next_step;
   $('#reviewFollowUpLabel').hidden = !review.previous_next_step && !review.follow_up;
@@ -143,6 +149,30 @@ async function loadReview(week = state.reviewWeek, preserveDraft = false) {
     state.reviewSnapshot = JSON.stringify(reviewValues());
     state.reviewDirty = false;
     $('#reviewStatus').textContent = '';
+  }
+  await loadReviewRecords();
+}
+async function loadReviewRecords() {
+  const request = ++state.reviewRecordsRequest, week = state.reviewWeek;
+  const params = new URLSearchParams({from_day: week, to_day: offsetDay(week, 6) < today() ? offsetDay(week, 6) : today(), page: String(state.reviewRecordsPage), page_size: '6'});
+  try {
+    const result = await api(`/api/search?${params}`);
+    if (request !== state.reviewRecordsRequest || week !== state.reviewWeek) return;
+    state.reviewRecordsTotal = result.total;
+    const pages = Math.max(1, Math.ceil(result.total / 6));
+    if (state.reviewRecordsPage > pages) { state.reviewRecordsPage = pages; return loadReviewRecords(); }
+    $('#reviewRecordsCount').textContent = `共 ${result.total} 条 · 点击展开全文`;
+    $('#reviewHighlights').innerHTML = result.items.length ? result.items.map((item) => `<details class="review-record"><summary><time>${item.day}</time><span class="badge">${escapeHtml(item.category)}</span><span class="review-excerpt">${escapeHtml(item.content)}</span></summary><p>${escapeHtml(item.content)}</p><div class="entry-meta"><span>${item.minutes === null ? '未填时长' : `${item.minutes} 分钟`}</span>${item.link ? `<a href="${escapeHtml(item.link)}" target="_blank" rel="noopener noreferrer">查看成果 ↗</a>` : ''}<button type="button" class="text-button" data-review-day="${item.day}">查看当天记录</button></div></details>`).join('') : '<div class="empty">这周还没有学习记录，仍可写下观察和下一步。</div>';
+    $('#reviewHighlights').scrollTop = 0;
+    $('#reviewRecordsPages').hidden = pages <= 1;
+    $('#reviewRecordsPageLabel').textContent = `第 ${state.reviewRecordsPage} / ${pages} 页`;
+    $('#reviewRecordsPrev').disabled = state.reviewRecordsPage <= 1;
+    $('#reviewRecordsNext').disabled = state.reviewRecordsPage >= pages;
+  } catch (error) {
+    if (request === state.reviewRecordsRequest && week === state.reviewWeek) {
+      $('#reviewHighlights').innerHTML = `<div class="empty">加载失败：${escapeHtml(error.message)} <button type="button" id="retryReviewRecords" class="text-button">重试</button></div>`;
+      $('#reviewRecordsPages').hidden = true;
+    }
   }
 }
 async function changeReviewWeek(days) {
@@ -171,6 +201,21 @@ function openMilestone() {
 async function selectDay(day) { state.selectedDay = day; state.dayRecords = await api(`/api/records?day=${day}`); render(); $('#journal').scrollIntoView({behavior:'smooth',block:'start'}); }
 
 $('#quickAdd').addEventListener('click', () => openRecord());
+$('#activitySettingsForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if ($('#activitySettingsSave').disabled) return;
+  $('#activitySettingsSave').disabled = true;
+  try {
+    await api('/api/activity-settings', {method: 'PUT', body: JSON.stringify({record_target: Number($('#activityRecordTarget').value), minutes_target: Number($('#activityMinutesTarget').value)})});
+    await refresh();
+    $('#activitySettingsStatus').textContent = '已保存，历史活跃度已按新参考值更新';
+  } catch (error) { $('#activitySettingsStatus').textContent = error.message; }
+  finally { $('#activitySettingsSave').disabled = false; }
+});
+function revealSearch() { if (location.hash === '#search') $('#searchDisclosure').open = true; }
+window.addEventListener('hashchange', revealSearch);
+document.querySelector('a[href="#search"]').addEventListener('click', () => { $('#searchDisclosure').open = true; });
+revealSearch();
 $('#addRecord').addEventListener('click', () => openRecord());
 $('#addMilestone').addEventListener('click', openMilestone);
 $('#selectedDay').addEventListener('change', (event) => { if (event.target.value) selectDay(event.target.value); });
@@ -186,6 +231,9 @@ $('#searchPrev').addEventListener('click', () => { if (state.searchPage > 1) { s
 $('#searchNext').addEventListener('click', () => { if (state.searchPage * 20 < state.searchTotal) { state.searchPage++; runSearch(); } });
 $('#searchResults').addEventListener('click', (event) => { const day = event.target.closest('[data-search-day]')?.dataset.searchDay; if (day) selectDay(day); });
 $('#reviewPrev').addEventListener('click', () => changeReviewWeek(-7));
+$('#reviewRecordsPrev').addEventListener('click', () => { if (state.reviewRecordsPage > 1) { state.reviewRecordsPage--; loadReviewRecords(); } });
+$('#reviewRecordsNext').addEventListener('click', () => { if (state.reviewRecordsPage * 6 < state.reviewRecordsTotal) { state.reviewRecordsPage++; loadReviewRecords(); } });
+$('#reviewHighlights').addEventListener('click', (event) => { const day = event.target.closest('[data-review-day]')?.dataset.reviewDay; if (day) selectDay(day).catch((error) => toast(error.message)); if (event.target.id === 'retryReviewRecords') loadReviewRecords(); });
 $('#reviewNext').addEventListener('click', () => changeReviewWeek(7));
 $('#reviewForm').addEventListener('input', updateReviewDirty);
 $('#reviewForm').addEventListener('submit', async (event) => {

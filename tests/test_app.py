@@ -53,14 +53,39 @@ class AppFlowTests(unittest.TestCase):
             response = self.client.post("/api/records", json={"day": day, "category": "算法", "content": f"记录 {n}"})
             ids.append(response.json()["id"])
             activity = self.client.get("/api/overview").json()["activity"][day]
-            self.assertEqual(activity, {"count": n + 1, "level": min(n + 1, 4)})
+            self.assertEqual(activity, {"count": n + 1, "level": 1, "minutes": 0, "untimed_count": n + 1, "score": [4, 8, 11, 15, 19][n]})
         self.assertEqual(self.client.put(f"/api/records/{ids[0]}", json={"day": "2026-09-23", "category": "算法", "content": "改日期"}).status_code, 200)
         activity = self.client.get("/api/overview").json()["activity"]
-        self.assertEqual(activity[day], {"count": 4, "level": 4})
-        self.assertEqual(activity["2026-09-23"], {"count": 1, "level": 1})
+        self.assertEqual(activity[day]["score"], 15)
+        self.assertEqual(activity["2026-09-23"]["score"], 4)
         for record_id in ids[1:]:
             self.assertEqual(self.client.delete(f"/api/records/{record_id}").status_code, 204)
         self.assertNotIn(day, self.client.get("/api/overview").json()["activity"])
+
+    def test_activity_weighting_settings_and_restore(self):
+        defaults = {"record_target": 8, "minutes_target": 600}
+        self.assertEqual(self.client.get("/api/overview").json()["activity_settings"], defaults)
+        for count, minutes, score, level in [(8, 600, 100, 4), (4, 300, 50, 2), (8, 0, 30, 2), (1, 600, 74, 3), (1, 60, 11, 1), (10, 1200, 100, 4)]:
+            with closing(sqlite3.connect(self.db_path)) as db:
+                db.execute("DELETE FROM records")
+                db.executemany("INSERT INTO records(day,category,content,minutes) VALUES ('2026-09-24','test','test',?)", [(minutes if n == 0 else 0,) for n in range(count)])
+                db.commit()
+            activity = self.client.get("/api/overview").json()["activity"]["2026-09-24"]
+            self.assertEqual((activity["score"], activity["level"], activity["untimed_count"]), (score, level, 0))
+        changed = {"record_target": 20, "minutes_target": 1440}
+        original = self.client.get("/api/records?day=2026-09-24").json()
+        self.assertEqual(self.client.put("/api/activity-settings", json=changed).status_code, 200)
+        with TestClient(create_app(self.db_path)) as reopened:
+            data = reopened.get("/api/overview").json()
+            self.assertEqual(data["activity_settings"], changed)
+            self.assertEqual(data["activity"]["2026-09-24"]["score"], 73)
+            self.assertEqual(reopened.get("/api/records?day=2026-09-24").json(), original)
+        snapshot = self.client.get("/api/backup").content
+        self.client.put("/api/activity-settings", json=defaults)
+        self.assertEqual(self.client.post("/api/restore", content=snapshot).status_code, 200)
+        self.assertEqual(self.client.get("/api/overview").json()["activity_settings"], changed)
+        for invalid in [{"record_target": 0, "minutes_target": 600}, {"record_target": 8, "minutes_target": 1441}]:
+            self.assertEqual(self.client.put("/api/activity-settings", json=invalid).status_code, 422)
 
     def test_milestone_and_validation(self):
         milestone = self.client.post("/api/milestones", json={"day": "2026-09-24", "title": "第一个项目", "detail": "独立完成"})
@@ -119,6 +144,16 @@ class AppFlowTests(unittest.TestCase):
         reopened.close()
         self.assertEqual(self.client.get("/api/review?week_start=2026-09-22").status_code, 422)
 
+    def test_all_week_records_are_reachable_through_pages(self):
+        with closing(sqlite3.connect(self.db_path)) as db:
+            db.executemany("INSERT INTO records(day, category, content) VALUES (?, ?, ?)", [("2026-09-24", "算法", f"周记录 {n}") for n in range(13)])
+            db.execute("INSERT INTO records(day, category, content) VALUES ('2026-09-20', '算法', '上周记录')")
+            db.commit()
+        pages = [self.client.get("/api/search", params={"from_day": "2026-09-21", "to_day": "2026-09-27", "page_size": 6, "page": page}).json() for page in range(1, 4)]
+        self.assertEqual([len(page["items"]) for page in pages], [6, 6, 1])
+        self.assertEqual(len({item["id"] for page in pages for item in page["items"]}), 13)
+        self.assertTrue(all(page["total"] == 13 for page in pages))
+
     def test_old_review_schema_migrates_and_action_carries_forward(self):
         legacy_path = Path(self.temp.name) / "legacy-review.db"
         with closing(sqlite3.connect(legacy_path)) as db:
@@ -153,6 +188,7 @@ class AppFlowTests(unittest.TestCase):
         restored = self.client.post("/api/restore", content=backup_path.read_bytes(), headers={"Content-Type": "application/octet-stream"})
         self.assertEqual(restored.status_code, 200)
         self.assertEqual(self.client.get("/api/records?day=2026-09-24").json()[0]["content"], "旧记录")
+        self.assertEqual(self.client.get("/api/overview").json()["activity_settings"], {"record_target": 8, "minutes_target": 600})
         review = self.client.get("/api/review?week_start=2026-09-21").json()
         self.assertEqual((review["learning"], review["blocker"], review["follow_up"], review["next_step"]), ("旧收获", "", "", "继续练习"))
         self.assertEqual(self.client.put("/api/review", json={"week_start": "2026-09-21", "blocker": "待验证", "follow_up": "已复习"}).status_code, 200)

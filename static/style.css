@@ -9,6 +9,9 @@
 .weekday-axis{display:grid;grid-template-rows:repeat(7,12px);gap:4px;color:#9daa9e;font-size:10px;line-height:12px;text-align:right}
 
 .search-panel,.data-panel{margin-top:20px}
+.search-disclosure{cursor:pointer;font-size:16px;font-weight:700;color:#365b43}
+.search-disclosure .subtle{margin-left:12px;font-weight:400;display:inline-block}
+#searchDisclosure[open] .search-disclosure{margin-bottom:20px}
 .search-controls{display:grid;grid-template-columns:minmax(180px,2fr) minmax(125px,1fr) minmax(135px,1fr) minmax(135px,1fr) auto;gap:10px;align-items:end;margin:20px 0 8px}
 .search-controls label{font-size:11px;font-weight:700;color:#6d8474}
 .search-controls input,.search-controls select{display:block;width:100%;height:36px;margin-top:6px;padding:7px 10px;border:1px solid #dce6dc;border-radius:8px;background:#fbfcfa;color:#30483a;outline:none}
@@ -38,6 +41,18 @@
 .review-highlights h3{font-size:13px;color:#3d5a44;margin:17px 0 8px}
 .review-highlights p{font-size:12px;color:#637b69;line-height:1.7;padding:7px 0;margin:0;border-bottom:1px solid #edf0eb;white-space:pre-wrap;overflow-wrap:anywhere}
 .review-highlights time{color:#8da092}
+.review-records-head h3{font-size:14px;margin:12px 0}
+.review-highlights{max-height:320px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.review-record{border-bottom:1px solid #e5ebe3;padding:9px 3px}
+.review-record summary{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:12px;min-height:28px}
+.review-record summary::before{content:'▸';color:#427650}
+.review-record[open] summary::before{content:'▾'}
+.review-record time{flex:none}
+.review-excerpt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.review-record .entry-meta{padding:7px 0}
+.review-record summary:focus-visible{outline:2px solid #327555;outline-offset:2px}
+.day-cell.level-0,.legend .level-0{background:#ebedf0}.day-cell.level-1,.legend .level-1{background:#bfe5ca}.day-cell.level-2,.legend .level-2{background:#6fbd8c}.day-cell.level-3,.legend .level-3{background:#258255}.day-cell.level-4,.legend .level-4{background:#08492e}
+.legend{flex-wrap:wrap}.activity-settings{margin-top:16px}.activity-settings summary{cursor:pointer;font-size:13px;color:#365b43}.review-record>p{white-space:pre-wrap;overflow-wrap:anywhere}
 .review-form{display:grid;gap:12px;margin-top:22px}
 .review-previous{margin-top:18px;padding:13px 15px;border-radius:9px;background:#f4f7ee;color:#426b4d;font-size:12px}
 .review-previous[hidden],.review-form label[hidden]{display:none}
