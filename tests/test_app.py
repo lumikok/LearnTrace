@@ -63,9 +63,9 @@ class AppFlowTests(unittest.TestCase):
         self.assertNotIn(day, self.client.get("/api/overview").json()["activity"])
 
     def test_activity_weighting_settings_and_restore(self):
-        defaults = {"record_target": 8, "minutes_target": 600}
+        defaults = {"record_target": 8, "minutes_target": 480}
         self.assertEqual(self.client.get("/api/overview").json()["activity_settings"], defaults)
-        for count, minutes, score, level in [(8, 600, 100, 4), (4, 300, 50, 2), (8, 0, 30, 2), (1, 600, 74, 3), (1, 60, 11, 1), (10, 1200, 100, 4)]:
+        for count, minutes, score, level in [(8, 480, 100, 4), (4, 240, 50, 2), (8, 0, 30, 2), (1, 480, 74, 3), (1, 48, 11, 1), (10, 1200, 100, 4)]:
             with closing(sqlite3.connect(self.db_path)) as db:
                 db.execute("DELETE FROM records")
                 db.executemany("INSERT INTO records(day,category,content,minutes) VALUES ('2026-09-24','test','test',?)", [(minutes if n == 0 else 0,) for n in range(count)])
@@ -86,6 +86,9 @@ class AppFlowTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/overview").json()["activity_settings"], changed)
         for invalid in [{"record_target": 0, "minutes_target": 600}, {"record_target": 8, "minutes_target": 1441}]:
             self.assertEqual(self.client.put("/api/activity-settings", json=invalid).status_code, 422)
+        self.client.put("/api/activity-settings", json={"record_target": 8, "minutes_target": 600})
+        with TestClient(create_app(self.db_path)) as reopened:
+            self.assertEqual(reopened.get("/api/overview").json()["activity_settings"]["minutes_target"], 600)
 
     def test_milestone_and_validation(self):
         milestone = self.client.post("/api/milestones", json={"day": "2026-09-24", "title": "第一个项目", "detail": "独立完成"})
@@ -188,7 +191,7 @@ class AppFlowTests(unittest.TestCase):
         restored = self.client.post("/api/restore", content=backup_path.read_bytes(), headers={"Content-Type": "application/octet-stream"})
         self.assertEqual(restored.status_code, 200)
         self.assertEqual(self.client.get("/api/records?day=2026-09-24").json()[0]["content"], "旧记录")
-        self.assertEqual(self.client.get("/api/overview").json()["activity_settings"], {"record_target": 8, "minutes_target": 600})
+        self.assertEqual(self.client.get("/api/overview").json()["activity_settings"], {"record_target": 8, "minutes_target": 480})
         review = self.client.get("/api/review?week_start=2026-09-21").json()
         self.assertEqual((review["learning"], review["blocker"], review["follow_up"], review["next_step"]), ("旧收获", "", "", "继续练习"))
         self.assertEqual(self.client.put("/api/review", json={"week_start": "2026-09-21", "blocker": "待验证", "follow_up": "已复习"}).status_code, 200)
