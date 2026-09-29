@@ -46,7 +46,7 @@ function render() {
   $('#activeDays').textContent = state.stats.active_days;
   $('#totalMinutes').textContent = state.stats.total_minutes;
   $('#totalMilestones').textContent = state.milestones.length;
-  const reference = state.activity_settings || {record_target: 8, minutes_target: 480};
+  const reference = state.activity_settings || {record_target: 8, minutes_target: 600};
   $('#activityRecordTarget').value = reference.record_target;
   $('#activityMinutesTarget').value = reference.minutes_target;
   $('#activityReference').textContent = `${reference.record_target} 条 / ${reference.minutes_target} 分钟`;

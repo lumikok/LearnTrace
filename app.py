@@ -129,7 +129,7 @@ class ReviewInput(BaseModel):
 
 class ActivitySettingsInput(BaseModel):
     record_target: int = Field(default=8, ge=1, le=100)
-    minutes_target: int = Field(default=480, ge=1, le=1440)
+    minutes_target: int = Field(default=600, ge=1, le=1440)
 
 
 def create_app(db_path: Path | str | None = None, first_used_on: str | None = None) -> FastAPI:
@@ -176,7 +176,7 @@ def create_app(db_path: Path | str | None = None, first_used_on: str | None = No
                 db.execute(f"ALTER TABLE weekly_reviews ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         db.execute("INSERT OR IGNORE INTO app_meta(key, value) VALUES ('first_used_on', ?)", (initial_day,))
         db.execute("INSERT OR IGNORE INTO app_meta(key, value) VALUES ('activity_record_target', '8')")
-        db.execute("INSERT OR IGNORE INTO app_meta(key, value) VALUES ('activity_minutes_target', '480')")
+        db.execute("INSERT OR IGNORE INTO app_meta(key, value) VALUES ('activity_minutes_target', '600')")
 
     def activity_settings(db: sqlite3.Connection) -> dict:
         values = dict(db.execute("SELECT key, value FROM app_meta WHERE key IN ('activity_record_target', 'activity_minutes_target')"))
